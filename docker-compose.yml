@@ -5,16 +5,27 @@ networks:
 
 services:
   syncthing4swarm:
-    image: syncthing4swarm/syncthing4swarm:latest
+    image: ghcr.io/OWNER/syncthing4swarm:latest
     volumes:
-      - /var/syncthing:/var/syncthing
+      # Keep Syncthing's own identity/configuration local to each Swarm node.
+      - /var/lib/syncthing4swarm/config:/var/syncthing/config
+      # Only this directory is replicated between trusted manager nodes.
+      - /opt/swarm-stacks:/var/syncthing/data
     deploy:
       mode: global
+      placement:
+        constraints:
+          - node.role == manager
     environment:
-      - STGUIAPIKEY=A1B2C3 # CHANGE ME
-      - SYNCTHING_PORT=8384
-      - SYNCTHING_FOLDER_PATH=/var/syncthing/data
-      - PUID=0
-      - PGID=0
+      # Set this in the deployment environment; never commit a real key.
+      - STGUIAPIKEY=${STGUIAPIKEY:-change-me-in-local-env}
+      - SYNCTHING_PORT=${SYNCTHING_PORT:-8384}
+      - SYNCTHING_SYNC_PORT=${SYNCTHING_SYNC_PORT:-22000}
+      - SYNCTHING_FOLDER_ID=${SYNCTHING_FOLDER_ID:-swarm-stacks}
+      - SYNCTHING_FOLDER_PATH=${SYNCTHING_FOLDER_PATH:-/var/syncthing/data}
+      - SYNCTHING_FOLDER_LABEL=${SYNCTHING_FOLDER_LABEL:-Swarm deployment control}
+      - PUID=${PUID:-0}
+      - PGID=${PGID:-0}
+      - UMASK=${UMASK:-077}
     networks:
       - syncthing4swarm

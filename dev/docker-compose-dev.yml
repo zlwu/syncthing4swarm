@@ -7,14 +7,22 @@ services:
   syncthing4swarm:
     image: syncthing4swarm:local
     volumes:
-      - /var/syncthing/data:/var/syncthing/data
+      - /var/lib/syncthing4swarm/config:/var/syncthing/config
+      - /opt/swarm-stacks-test:/var/syncthing/data
     deploy:
       mode: global
+      placement:
+        constraints:
+          - node.role == manager
     environment:
-      - STGUIAPIKEY=A1B2C3 # CHANGE ME
-      - SYNCTHING_PORT=8384
-      - SYNCTHING_FOLDER_PATH=/var/syncthing/data
-      - PUID=0
-      - PGID=0
+      - STGUIAPIKEY=${STGUIAPIKEY:-local-only-change-me}
+      - SYNCTHING_PORT=${SYNCTHING_PORT:-8384}
+      - SYNCTHING_SYNC_PORT=${SYNCTHING_SYNC_PORT:-22000}
+      - SYNCTHING_FOLDER_ID=${SYNCTHING_FOLDER_ID:-swarm-stacks-test}
+      - SYNCTHING_FOLDER_PATH=${SYNCTHING_FOLDER_PATH:-/var/syncthing/data}
+      - SYNCTHING_FOLDER_LABEL=${SYNCTHING_FOLDER_LABEL:-Swarm test folder}
+      - PUID=${PUID:-0}
+      - PGID=${PGID:-0}
+      - UMASK=${UMASK:-077}
     networks:
       - syncthing4swarm

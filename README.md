@@ -1,153 +1,71 @@
-# Syncthing4Swarm
+# syncthing4swarm
 
-<p align="center">
-  <img src="pictures/syncthing4swarm.svg" alt="combination from syncthing and docker swarm logo syncthing4swarm" width="400">
-</p>
+A small, private-network Syncthing wrapper for Docker Swarm manager nodes.
 
-<p align="center"><b>Replicate Docker volumes across your Swarm cluster — automatically
-</b></p>
+It deploys one Syncthing task per manager and replicates a single host directory between trusted managers. The intended use is a deployment-control directory, not application data replication.
 
-Syncthing4Swarm deploys [Syncthing](https://syncthing.net/) across a Docker Swarm cluster with automatic peer discovery and zero-touch configuration.
+## Security boundary
 
-## Features
+This public repository and its GHCR image contain only generic code and placeholders. Do not commit real node names, IP addresses, domains, production stack files, credentials, `.env` files, topology documents, or application data.
 
-- **Global deployment**: one Syncthing instance on every Swarm node
-- **Automatic discovery**: scans the overlay network to find other instances
-- **Auto-configuration**: mutual device pairing and folder sharing without manual intervention
-- **Private mode**: disables relays and global discovery (internal traffic only)
+The image does not contain your deployment directory. At runtime, mount a private host directory such as `/opt/swarm-stacks`.
 
-## Architecture
+## Requirements
 
-```
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║                                 Docker Swarm                                  ║
-║                                                                               ║
-║  ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐  ║
-║  │       Node 1        │   │       Node 2        │   │       Node 3        │  ║
-║  │     ┌─────────┐     │   │     ┌─────────┐     │   │     ┌─────────┐     │  ║
-║  │     │Syncthing│◄────┼───┼────►│Syncthing│◄────┼───┼────►│Syncthing│     │  ║
-║  │     └────┬────┘     │   │     └────┬────┘     │   │     └────┬────┘     │  ║
-║  │          │          │   │          │          │   │          │          │  ║
-║  │ /var/syncthing/data │   │ /var/syncthing/data │   │ /var/syncthing/data │  ║
-║  └─────────────────────┘   └─────────────────────┘   └─────────────────────┘  ║
-║                                                                               ║
-║                           Overlay network (internal)                          ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-```
+- Docker Swarm initialized.
+- Trusted manager nodes sharing one internal overlay network.
+- The host directory exists on each manager.
+- The same folder path is used on each manager.
+- Only trusted managers are allowed to access the Syncthing GUI and sync port.
 
-## Requirement
+## Deployment example
 
-- Initialized Docker Swarm (`docker swarm init`)
-
-## Quick Start
-
-Run on **each node**:
+1. Create the local Syncthing state and private deployment directory on each manager:
 
 ```bash
-sudo mkdir -p /var/syncthing/data
+sudo install -d -m 0700 -o root -g root /var/lib/syncthing4swarm/config
+sudo install -d -m 0700 -o root -g root /opt/swarm-stacks
 ```
 
-Run only on **one node**:
+2. Create a private environment file outside this repository:
 
 ```bash
-# Clone the repository
-git clone https://github.com/sammonsempes/syncthing4swarm.git
-cd syncthing4swarm
-
-# Deploy to Swarm
-sudo docker stack deploy -c docker-compose.yml syncthing4swarm
+STGUIAPIKEY=replace-with-a-long-random-value
+SYNCTHING_FOLDER_ID=swarm-stacks
+SYNCTHING_FOLDER_PATH=/var/syncthing/data
+PUID=0
+PGID=0
+UMASK=077
 ```
 
-## Configuration
+3. Replace `OWNER` in `docker-compose.yml` with the public GHCR owner and deploy from one manager:
 
-Available environment variables that can be used in `docker-compose.yml`:
+```bash
+set -a
+. /path/to/private/syncthing.env
+set +a
+docker stack deploy -c docker-compose.yml syncthing4swarm
+```
 
-| Variable                   | Default               | Description                          |
-| -------------------------- | --------------------- | ------------------------------------ |
-| `STGUIAPIKEY`              | *required*            | API key for Syncthing interface      |
-| `SYNCTHING_PORT`           | `8384`                | REST API port                        |
-| `SYNCTHING_SYNC_PORT`      | `22000`               | Synchronization port                 |
-| `SYNCTHING_FOLDER_ID`      | `shared`              | Shared folder identifier             |
-| `SYNCTHING_FOLDER_PATH`    | `/var/syncthing/data` | Synchronized folder path             |
-| `SYNCTHING_FOLDER_LABEL`   | `Shared`              | Display name for the folder          |
+The service is constrained to managers. Syncthing state is local at `/var/lib/syncthing4swarm/config`; only `/opt/swarm-stacks` is synchronized.
 
-## How It Works
+## Important operating rules
 
-On each container startup:
+- Initialize the synchronized directory from one authoritative manager before enabling bidirectional sync.
+- Only one operator edits the synchronized deployment directory at a time.
+- Resolve conflict files before deploying.
+- Keep application databases, logs, caches, locks, models, and runtime data outside the synchronized directory.
+- Use absolute `/opt/stacks/...` bind-mount paths in the private stack files so deploy can be initiated from any manager while tasks keep using their assigned node's local data.
 
-1. Waits for Syncthing to become operational
-2. Disables global features (relays, NAT, external discovery)
-   - [`"globalAnnounceEnabled": false`](https://docs.syncthing.net/users/config.html#config-option-options.globalannounceenabled) Whether to announce this device to the global announce (discovery) server, and also use it to look up other devices.
-   - [`"relaysEnabled": false`](https://docs.syncthing.net/users/config.html#config-option-options.relaysenabled) When `true`, relays will be connected to and potentially used for device to device connections.
-   - [`"natEnabled": false`](https://docs.syncthing.net/users/config.html#config-option-options.natenabled) Whether to attempt to perform a UPnP and NAT-PMP port mapping for incoming sync connections.
-   - [`"localAnnounceEnabled": true`](https://docs.syncthing.net/users/config.html#config-option-options.localannounceenabled) Whether to send announcements to the local LAN, also use such announcements to find other devices.
-   - [`"progressUpdateIntervalS": -1`](https://docs.syncthing.net/users/config.html#config-option-options.progressupdateintervals) How often in seconds the progress of ongoing downloads is made available to the GUI. Set to `-1` to disable. Note that when disabled, the detailed sync progress for Out of Sync Items which shows how much of each file has been reused, copied, and downloaded will not work.
-   - [`"setLowPriority": false`](https://docs.syncthing.net/users/config.html#config-option-options.setlowpriority) Syncthing will attempt to lower its process priority at startup. Specifically: on Linux, set itself to a separate process group, set the niceness level of that process group to nine and the I/O priority to best effort level five; on other Unixes, set the process niceness level to nine; on Windows, set the process priority class to below normal. To disable this behavior, for example to control process priority yourself as part of launching Syncthing, set this option to `false`.
+## Public examples
 
-3. Creates the shared folder if it doesn't exist
-4. Scans the overlay subnet (`/24`)
-5. Mutually adds all discovered devices with their static IP addresses
-6. Syncs the device list across the shared folder
-7. Sets the following folder settings in syncthing:
-   - [`"rescanIntervalS": 3600`](https://docs.syncthing.net/users/config.html#config-option-folder.rescanintervals) Performs a full rescan ervery 3600 seconds (every hour).
-   - [`fsWatcherEnabled: true`](https://docs.syncthing.net/users/config.html#config-option-folder.fswatcherenabled) If set to `true`, this detects changes to files in the folder and scans them.
-   - [`"ignorePerms": false`](https://docs.syncthing.net/users/config.html#config-option-folder.ignoreperms) If `true`, files originating from this folder will be announced to remote devices with the “no permission bits” flag. The remote devices will use whatever their default permission setting is when creating the files. The primary use case is for file systems that do not support permissions, such as FAT, or environments where changing permissions is impossible.
-   - [`"autoNormalize": true`](https://docs.syncthing.net/users/config.html#config-option-folder.autonormalize) Automatically correct UTF-8 normalization errors found in file names. The mechanism and how to set it up is described in a [separate chapter](https://docs.syncthing.net/advanced/folder-autonormalize.html).
-   - [`"scanProgressIntervalS": -1`](https://docs.syncthing.net/users/config.html#config-option-folder.scanprogressintervals) The interval in seconds with which scan progress information is sent to the GUI. Setting to `0` will cause Syncthing to use the default value of two. If you don’t need to see scan progress, set this to `-1` to disable it.
-   - [`"caseSensitiveFS": true`](https://docs.syncthing.net/users/config.html#config-option-folder.casesensitivefs) Affects performance by disabling the extra safety checks for case insensitive filesystems. The mechanism and how to set it up is described in a [separate chapter](https://docs.syncthing.net/advanced/folder-caseSensitiveFS.html).
-   - [`"sendOwnership": true`](https://docs.syncthing.net/users/config.html#config-option-folder.sendownership) File and directory ownership information is scanned when this is set to `true`. See [sendOwnership](https://docs.syncthing.net/advanced/folder-send-ownership.html) for more information.
-   - [`"syncOwnership": true`](https://docs.syncthing.net/users/config.html#config-option-folder.syncownership) File and directory ownership is synced when this is set to `true`. See [syncOwnership](https://docs.syncthing.net/advanced/folder-sync-ownership.html) for more information.
-   - [`"maxConflicts": 0`](https://docs.syncthing.net/users/config.html#config-option-folder.maxconflicts) The maximum number of conflict copies to keep around for any given file. The default is `10`. `-1`, means an unlimited number. Setting this to `0` disables conflict copies altogether.
-   - [`"fsWatcherDelayS": 1`](https://docs.syncthing.net/users/config.html#config-option-folder.fswatcherdelays) The duration during which changes detected are accumulated, before a scan is scheduled (only takes effect if fsWatcherEnabled is set to `true`).
-
-## Exposed Ports
-
-| Port  | Protocol | Usage                      |
-| ----- | -------- | -------------------------- |
-| 8384  | TCP      | REST API                   |
-| 22000 | TCP/UDP  | File synchronization       |
-| 21027 | UDP      | Local discovery            |
+See `examples/swarm-stacks/`. The examples contain placeholders only. The real `/opt/swarm-stacks` directory must remain private to your cluster.
 
 ## Development
 
-Run on **each node**:
-
 ```bash
-sudo mkdir -p /var/syncthing/data
-
-# Clone the repository
-git clone https://github.com/sammonsempes/syncthing4swarm.git
-cd syncthing4swarm/dev
-
-# Build image
-sudo docker build -t syncthing4swarm:local .
+docker build --build-arg SYNCTHING_VERSION=2.1.2 -t syncthing4swarm:local ./dev
+docker compose -f dev/docker-compose-dev.yml config
 ```
 
-Run only on **one node**:
-
-```bash
-# Deploy to Swarm
-sudo docker stack deploy -c docker-compose-dev.yml syncthing4swarm
-
-# Watch how syncthing connects itself with other nodes.
-# Initial setup takes about 5 minutes to finish
-sudo docker service logs syncthing4swarm_syncthing4swarm -f
-
-## Testing ...
-
-# Remove stack
-sudo docker stack rm syncthing4swarm
-```
-
-Run on **each node**:
-
-```bash
-# Remove dev image from local image repository
-sudo docker image rm syncthing4swarm:local
-```
-
-## Acknowledgments
-
-This project is built on top of [Syncthing](https://github.com/syncthing/syncthing), an amazing open-source continuous file synchronization program. Huge thanks to the Syncthing contributors for their incredible work.
-
-This project was inspired by [docker-swarm-syncthing](https://github.com/bluepuma77/docker-swarm-syncthing) by bluepuma77.
+The published image currently targets `linux/amd64`, matching the current test cluster. The GHCR workflow publishes from `main` and version tags. A weekly workflow checks both this upstream source repository and Syncthing stable releases, validates changes, and opens a review PR instead of auto-merging.

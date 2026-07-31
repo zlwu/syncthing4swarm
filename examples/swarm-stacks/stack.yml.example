@@ -1,0 +1,15 @@
+services:
+  example:
+    image: example/image:stable
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == example-node
+    volumes:
+      # Runtime data stays on the node where the service is scheduled.
+      - /opt/stacks/example/data:/var/lib/example
+
+networks:
+  default:
+    external: true
+    name: traefik-public
