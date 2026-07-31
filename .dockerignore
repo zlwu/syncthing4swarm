@@ -1,0 +1,8 @@
+**/.env
+**/*.key
+**/*.pem
+**/*.secret
+.git
+.github
+README*
+examples

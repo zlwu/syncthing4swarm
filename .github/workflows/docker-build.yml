@@ -1,42 +1,80 @@
-name: Build and Push Docker Image
+name: Build and publish GHCR image
 
 on:
   push:
-    branches:
-      - '**'
+    branches: [main]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/zlwu/syncthing4swarm
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6.0.2
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Read Syncthing version
+        id: syncthing
+        run: echo "version=$(tr -d '[:space:]' < .github/syncthing-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Install validation tools
+        if: github.event_name == 'pull_request'
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Validate shell and Compose files
+        if: github.event_name == 'pull_request'
+        run: |
+          shellcheck dev/entrypoint.sh
+          docker compose -f docker-compose.yml config >/dev/null
+          docker compose -f dev/docker-compose-dev.yml config >/dev/null
+          test -z "$(git ls-files | grep -E '(^|/)(\.env|.*\.secret|.*\.pem|.*\.key)$' || true)"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.12.0
+        uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3.7.0
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine Docker tag
-        id: docker_tag
-        run: |
-          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            echo "tag=latest" >> $GITHUB_OUTPUT
-          else
-            BRANCH_NAME=$(echo "${{ github.ref }}" | sed 's/refs\/heads\///' | sed 's/\//-/g')
-            echo "tag=${BRANCH_NAME}" >> $GITHUB_OUTPUT
-          fi
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=tag
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Syncthing wrapper for trusted Docker Swarm manager nodes
+            org.opencontainers.image.licenses=Apache-2.0
 
-      - name: Build and push
-        uses: docker/build-push-action@v6.18.0
+      - name: Build and push amd64 image
+        uses: docker/build-push-action@v6
         with:
           context: ./dev
-          push: true
-          build-args: |
-            SYNCTHING_VERSION=latest
-          tags: syncthing4swarm/syncthing4swarm:${{ steps.docker_tag.outputs.tag }}
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          build-args: SYNCTHING_VERSION=${{ steps.syncthing.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
