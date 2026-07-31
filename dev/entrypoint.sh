@@ -116,6 +116,7 @@ scan_for_peers() {
     ip="$1"
     prefix=$(printf '%s' "$ip" | cut -d. -f1-3)
     [ -n "$prefix" ] || return 0
+    # shellcheck disable=SC2016
     seq 1 254 | xargs -P 32 -I {} sh -c '
         prefix="$1"
         key="$2"
