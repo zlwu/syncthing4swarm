@@ -29,6 +29,18 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
+      - name: Install validation tools
+        if: github.event_name == 'pull_request'
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Validate shell and Compose files
+        if: github.event_name == 'pull_request'
+        run: |
+          shellcheck dev/entrypoint.sh
+          docker compose -f docker-compose.yml config >/dev/null
+          docker compose -f dev/docker-compose-dev.yml config >/dev/null
+          test -z "$(git ls-files | grep -E '(^|/)(\.env|.*\.secret|.*\.pem|.*\.key)$' || true)"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

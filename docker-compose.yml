@@ -5,7 +5,7 @@ networks:
 
 services:
   syncthing4swarm:
-    image: ghcr.io/OWNER/syncthing4swarm:latest
+    image: ghcr.io/zlwu/syncthing4swarm:latest
     volumes:
       # Keep Syncthing's own identity/configuration local to each Swarm node.
       - /var/lib/syncthing4swarm/config:/var/syncthing/config
