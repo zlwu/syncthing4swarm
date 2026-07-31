@@ -117,13 +117,16 @@ scan_for_peers() {
     prefix=$(printf '%s' "$ip" | cut -d. -f1-3)
     [ -n "$prefix" ] || return 0
     seq 1 254 | xargs -P 32 -I {} sh -c '
-        peer="'"$prefix"'.{}"
+        prefix="$1"
+        key="$2"
+        port="$3"
+        peer="${prefix}.${4}"
         if curl -sS -f --max-time 2 -o /dev/null \
-            -H "X-API-Key: '"$KEY"'" \
-            "http://${peer}:'"$PORT"'/rest/system/status" 2>/dev/null; then
+            -H "X-API-Key: ${key}" \
+            "http://${peer}:${port}/rest/system/status" 2>/dev/null; then
             printf "%s\\n" "$peer"
         fi
-    '
+    ' sh "$prefix" "$KEY" "$PORT" {}
 }
 
 contains() {
